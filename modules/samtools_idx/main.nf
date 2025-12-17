@@ -6,17 +6,17 @@ process SAMTOOLS_IDX {
     publishDir params.outdir
     
     input:
-    tuple val(sample_id), path(sorted_bam)
+    tuple val(sample_id), path(bam)
 
     output:
-    tuple val(sample_id), path(sorted_bam), path("${sample_id}.sorted.bam.bai")
+    tuple val(sample_id), path(bam), path("${bam}.bai")
 
     script:
     """
-    samtools index -@ ${task.cpus} ${sample_id}.sorted.bam
+    samtools index -@ ${task.cpus} ${bam}
     """
     stub:
     """
-    touch ${sample_id}.sorted.bam.bai
+    touch ${bam}.bai
     """
 }

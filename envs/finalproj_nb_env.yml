@@ -1,4 +1,4 @@
-name: finalproj_notebook_env_1
+name: finalproj_notebook_env_2
 channels:
 - conda-forge
 - bioconda
@@ -8,4 +8,4 @@ dependencies:
 - pandas=2.2.2
 - ipykernel=6.29.5
 - matplotlib=3.10.7
-- matplotlib_venn=1.1.2
+- nbconvert=7.16.6

@@ -3,12 +3,9 @@
 process BOWTIE2_ALIGN {
     label 'process_high'
     container 'ghcr.io/bf528/bowtie2:latest'
-    publishDir params.outdir
     
     input:
-    //from fastqc
-    tuple val(sample_id), path(reads)
-    //from bowtie2 index
+    tuple val(sample_id), path(reads) 
     path(index)
     val(index_name)
 
@@ -17,8 +14,11 @@ process BOWTIE2_ALIGN {
 
     script:
     """
-    bowtie2 -p ${task.cpus} -x ${index}/${index_name} -U ${reads} | samtools view -bS - > ${sample_id}.bam
+    bowtie2 --very-sensitive -p ${task.cpus} -x ${index}/${index_name} -U ${reads} | samtools view -bS - > ${sample_id}.bam
     """
+    // Comment: adding in the very sensitive is due to the fact that we are working with atac-seq data
+    // As this data are single end reads, not paired ends, I did not include other commonly used ATAC-seq specific terms
+    // These include the following: --no-mixed --no-discordant -X 2000
 
     stub:
     """
