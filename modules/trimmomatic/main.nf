@@ -1,29 +1,35 @@
-#!/usr/bin/env nextflow
+#!/usr/bin/env nextflow 
 
-process TRIM {
-    label 'process_medium'
+process TRIMMOMATIC{
+    label 'process_low'
     container 'ghcr.io/bf528/trimmomatic:latest'
-    publishDir params.outdir
-    
+    publishDir "${params.outdir}/trimmed_reads", mode: 'copy'
+
     input:
+    tuple val(sample_name), file(fastqfile)
     path(adapters)
-    tuple val(sample_id), path(reads)
 
     output:
-    tuple val(sample_id), path("${sample_id}_trim.log"), emit: log
-    tuple val(sample_id), path("${sample_id}_trimmed.fastq.gz"), emit: reads
+    tuple val(sample_name), file("${sample_name}_trimmed.fastq.gz"), emit: reads
+    tuple val(sample_name), file("${sample_name}_trimmed.log"), emit:log
 
+    // use the default, single end read command.
     script:
     """
-    trimmomatic SE -phred33 ${reads} ${sample_id}_trimmed.fastq.gz ILLUMINACLIP:TruSeq3-SE:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36 2>&1 | tee ${sample_id}_trim.log
+    trimmomatic SE \
+        -threads ${task.cpus} \
+        -phred33 \
+        ${fastqfile} ${sample_name}_trimmed.fastq.gz \
+        ILLUMINACLIP:${adapters}:2:30:10 \
+        LEADING:3 \
+        TRAILING:3 \
+        SLIDINGWINDOW:4:15 \
+        MINLEN:36 \
+        2> ${sample_name}_trimmed.log
     """
-    // update this command to fit your new sample type please
-
-    //trimmomatic-0.35.jar SE -phred33 ${reads} ${name}_trimmed.fastq.gz ILLUMINACLIP:TruSeq3-SE:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36 2>&1 | tee ${name}_trim.log
-   
     stub:
     """
-    touch ${sample_id}_trim.log
-    touch ${sample_id}_trimmed.fastq.gz
+    touch stub_trimmed.fastq.gz
+    touch stub_trimmed.log
     """
 }

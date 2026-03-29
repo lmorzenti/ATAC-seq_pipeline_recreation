@@ -1,27 +1,28 @@
-#!/usr/bin/env nextflow
+#!/usr/bin/env nextflow 
 
 process FASTQC {
-    label 'process_medium'
-    container 'ghcr.io/bf528/fastqc:latest'
-    publishDir params.outdir
     
-    input:
-    tuple val(sample_id), path(reads)
+    label 'process_low'
+    container 'ghcr.io/bf528/fastqc:latest'
+    publishDir "${params.outdir}/quality_check", mode: 'copy'
 
+    input:
+    tuple val(sample_name), path(fastqfile) 
 
     output:
-    path("*_fastqc.html"), emit: html
-    tuple val(sample_id), path("*_fastqc.zip"), emit: zip
-    tuple val(sample_id), path(reads), emit: reads
+    tuple val(sample_name), path('*.zip'), emit: zip
+    tuple val(sample_name), path('*.html'), emit: html
 
     script:
     """
-    fastqc ${reads}
+    fastqc \
+        ${fastqfile} \
+        -t ${task.cpus}
     """
 
     stub:
     """
-    touch ${sample_id}_fastqc.zip
-    touch ${sample_id}_fastqc.html
+    touch ${sample_name}_fastqc.zip
+    touch ${sample_name}_fastqc.html
     """
 }

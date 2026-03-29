@@ -12,7 +12,8 @@ This project uses ATAC-seq single-end reads from the study by De Sá Fernandes e
 
 ## Running the Pipeline
 ```bash
-nextflow run main2.nf -profile singularity,cluster,conda
+conda activate nextflow_latest
+nextflow run main3.nf -profile singularity,cluster,conda
 ```
 
 This pipeline will download the ATAC-seq single reads that were used in the paper and send them off for preprocessing, peak calling, peak annotation, and motif finding. For further analysis, such as using DiffBind for differential chromatin accessibility analysis, the results of the pipeline should be manually input into two seperate csv files. The DiffBind R-markdown files are created with the assumption that there is a csv file for both of the cell types in the study, cDC1 and cDC2. 

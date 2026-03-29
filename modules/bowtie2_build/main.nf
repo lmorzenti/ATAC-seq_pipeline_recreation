@@ -1,16 +1,17 @@
-#!/usr/bin/env nextflow
+#!/usr/bin/env nextflow 
 
 process BOWTIE2_BUILD {
-    label 'process_high'
+    label 'process_medium'
     container 'ghcr.io/bf528/bowtie2:latest'
-    publishDir params.outdir
-    
+    publishDir "${params.outdir}/genome", mode: 'copy'
+
     input:
     path(genome)
 
     output:
     path("bowtie2_index/"), emit: index
     val("${genome.baseName}"), emit: index_name
+
 
     script:
     """
@@ -22,4 +23,6 @@ process BOWTIE2_BUILD {
     """
     mkdir bowtie2_index
     """
+
 }
+

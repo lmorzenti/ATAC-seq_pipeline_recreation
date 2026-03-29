@@ -1,49 +1,45 @@
 #!/usr/bin/env nextflow
 
 process CALCULATE_FRIP {
+
     label 'process_medium'
-    container 'ghcr.io/bf528/homer_samtools:latest'
+    container 'ghcr.io/bf528/bedtools_samtools:latest'
     publishDir "${params.outdir}/frip", mode: 'copy'
-  
+    
     input:
-    tuple val(sample_id), path(bam), path(peaks)
-    
+    tuple val(sample_name), path(bam), path(peaks)
+
     output:
-    tuple val(sample_id), path("${sample_id}_frip.txt"), emit: txt
-    path("${sample_id}_frip.csv"), emit: csv
-    
+    path("${sample_name}_frip.txt"), emit: txt
+    path("${sample_name}_frip.csv"), emit: csv
+
     script:
     """
-    # Check chromosome names in BAM
-    echo "BAM chromosomes:" > ${sample_id}_frip.txt
-    samtools view -H ${bam} | grep '@SQ' | head -5 >> ${sample_id}_frip.txt
+    # Count the total amount of reads
+    total_reads=\$(samtools view -c -F 260 ${bam})
 
-    # Check chromosome names in peaks
-    echo "Peak chromosomes:" >> ${sample_id}_frip.txt
-    head -5 ${peaks} >> ${sample_id}_frip.txt
-
-    # Count total aligned reads (exclude unmapped reads with -F 4)
-    total=\$(samtools view -c -F 4 ${bam})
-
-    # Count reads overlapping peaks
-    reads_in_peaks=\$(bedtools intersect -a ${bam} -b ${peaks} -u | wc -l)
-
-    # Calculate FRiP
-    frip=\$(awk "BEGIN {printf \\"%.4f\\", \$reads_in_peaks / \$total}")
-
-    # Output results
-    echo "" >> ${sample_id}_frip.txt
-    echo "Sample: ${sample_id}" >> ${sample_id}_frip.txt
-    echo "Total reads: \$total" >> ${sample_id}_frip.txt
-    echo "Reads in peaks: \$reads_in_peaks" >> ${sample_id}_frip.txt
-    echo "FRiP score: \$frip" >> ${sample_id}_frip.txt
-
-    echo "${sample_id},\$total,\$reads_in_peaks,\$frip" > ${sample_id}_frip.csv
-    """
+    # Count the reads found in each peak
+    reads_in_peaks=\$(bedtools intersect -a ${bam} -b ${peaks} -u -f 0.20 | samtools view -c)
     
+    # Calculate frip
+    frip=\$(echo "\$reads_in_peaks \$total_reads" | awk '{printf "%.4f", \$1/\$2}')
+    
+
+    # Save the results in a txt and csv file for later analysis
+    echo "Sample: ${sample_name}" > ${sample_name}_frip.txt
+    echo "Total reads: \$total_reads" >> ${sample_name}_frip.txt
+    echo "Reads in peaks: \$reads_in_peaks" >> ${sample_name}_frip.txt
+    echo "FRiP: \$frip" >> ${sample_name}_frip.txt
+    
+    echo "${sample_name},\$total_reads,\$reads_in_peaks,\$frip" > ${sample_name}_frip.csv
+    """
+
     stub:
     """
-    touch ${sample_id}_frip.txt
-    touch ${sample_id}_frip.csv
+    touch ${sample_name}_frip.txt
+    touch ${sample_name}_frip.csv
     """
+
+
+
 }

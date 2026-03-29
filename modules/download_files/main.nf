@@ -1,16 +1,24 @@
-#!/usr/bin/env nextflow
+#!/usr/bin/env nextflow 
 
-process DOWNLOAD_FTP_FILE {
-    label 'process_medium'
+process DOWNLOAD {
+
+    label 'process_low'
+    publishDir "${params.outdir}/raw_reads", mode: 'copy'
 
     input:
-    tuple val(sample_id), val(ftp)
+    tuple val(sample_name), val(ftp)
 
     output:
-    tuple val(sample_id), path('*.fastq.gz'), emit: fastq
+    tuple val(sample_name), path("${sample_name}.fastq.gz")
 
     script:
     """
-    wget -O ${sample_id}.fastq.gz ${ftp}
+    wget -O ${sample_name}.fastq.gz ${ftp}
     """
+
+    stub:
+    """
+    touch ${sample_name}.fastq.gz
+    """
+
 }

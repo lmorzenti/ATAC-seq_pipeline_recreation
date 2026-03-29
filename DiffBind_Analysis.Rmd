@@ -1,0 +1,375 @@
+---
+title: "DiffBind_Analysis"
+output: html_document
+---
+
+This markdown file will complete a Diffbind Analysis for both cell types. It assumes that there are 2 csv files that have been made with information written as the following:
+
+`SampleID,Tissue,Factor,Condition,Replicate,bamReads,Peaks,PeakCaller`
+
+
+```{r}
+library(tidyverse)
+library(DiffBind)
+library(rtracklayer)
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm39.refGene)
+library(org.Mm.eg.db)
+library(tidyverse)
+library(dplyr)
+```
+
+##### cCD1 #####
+
+```{r}
+
+cDC1 <- dba(sampleSheet="csv_data/cDC1_diffbind.csv")
+cDC1 <- dba.count(cDC1)
+cDC1 <- dba.contrast(cDC1, categories=DBA_CONDITION, minMembers=2)
+
+cDC1 <- dba.analyze(cDC1, method=DBA_EDGER)
+cDC1.DB <- dba.report(cDC1, method=DBA_EDGER)
+
+sig_results_1 <- dba.report(cDC1, method=DBA_EDGER, th=0.05, bUsePval=FALSE)
+sig_sorted_1 <- sig_results_1[order(sig_results_1$Fold, decreasing=TRUE),]
+
+```
+
+
+```{r}
+
+# View the significant results
+cat("\n=== cDC1 Differential Accessibility Results ===\n")
+cat("Total significant peaks (p<0.01):", length(sig_sorted_1), "\n")
+cat("Gained accessibility in KO (Fold > 0):", sum(sig_sorted_1$Fold > 0), "\n")
+cat("Lost accessibility in KO (Fold < 0):", sum(sig_sorted_1$Fold < 0), "\n")
+
+```
+
+
+
+```{r}
+
+# Separate gained and lost peaks
+gained_1 <- sig_sorted_1[sig_sorted_1$Fold > 0]  # KO has MORE accessibility
+lost_1 <- sig_sorted_1[sig_sorted_1$Fold < 0]    # KO has LESS accessibility
+
+# Export separately for futher pipeline analysis
+export.bed(gained_1, "cDC1_gained_accessibility.bed")
+export.bed(lost_1, "cDC1_lost_accessibility.bed")
+
+```
+
+
+
+```{r}
+
+# Create a combined file with labels
+gained_df_1 <- as.data.frame(gained_1)
+gained_df_1$peak_type <- "Gain"
+
+lost_df_1 <- as.data.frame(lost_1)
+lost_df_1$peak_type <- "Loss"
+
+# Combine them (Loss first, then Gain - like the figure)
+combined_1 <- rbind(lost_df_1, gained_df_1)
+
+```
+
+
+```{r}
+
+# Export as BED with name column indicating type
+combined_bed_1 <- combined_1[, c("seqnames", "start", "end", "peak_type")]
+
+write.table(combined_bed_1, "cDC1_significant_peaks_labeled.bed", 
+            quote=FALSE, sep="\t", row.names=FALSE, col.names=FALSE)
+
+cat("\nExported files:\n")
+cat("- cDC1_gained_accessibility.bed:", length(gained_1), "peaks\n")
+cat("- cDC1_lost_accessibility.bed:", length(lost_1), "peaks\n")
+export.bed(sig_sorted_1, "cDC1_significant_peaks_sorted.bed")
+
+```
+
+```{r}
+# Get ALL results (significant + non-significant) for RNA integration
+all_results_1 <- dba.report(cDC1, method=DBA_EDGER, th=1, bUsePval=FALSE)
+
+cat("\n=== ALL cDC1 Peaks Summary ===\n")
+cat("Total peaks analyzed:", length(all_results_1), "\n")
+cat("Significant peaks (p<0.01):", sum(all_results_1$`p-value` < 0.01, na.rm=TRUE), "\n")
+cat("Non-significant peaks:", sum(all_results_1$`p-value` >= 0.01, na.rm=TRUE), "\n")
+```
+
+```{r}
+# Annotate ALL peaks with ChIPseeker
+txdb_1 <- TxDb.Mmusculus.UCSC.mm39.refGene
+
+annotated_all_1 <- annotatePeak(
+  all_results_1, 
+  TxDb = txdb_1,
+  annoDb = "org.Mm.eg.db",
+  tssRegion = c(-3000, 3000),
+  verbose = TRUE
+)
+
+```
+
+```{r}
+
+colnames(as.data.frame(annotated_all_1))
+
+# Convert annotated results to dataframe
+peaks_all_df_1 <- as.data.frame(annotated_all_1) %>%
+  mutate(
+    peak_type = ifelse(Fold > 0, "Gain", "Loss"),
+    log2FoldChange_ATAC = Fold
+  ) %>%
+  dplyr::select(
+    seqnames, start, end, width, strand,
+    gene = SYMBOL,
+    log2FoldChange_ATAC,
+    FDR_ATAC = FDR,
+    pvalue = p.value,
+    peak_type,
+    distanceToTSS,
+    annotation,
+    Conc, Conc_WT, Conc_KO
+  )
+
+```
+
+```{r}
+
+# Summary
+cat("\n=== Annotation Summary (ALL cDC1 peaks) ===\n")
+cat("Total peaks:", nrow(peaks_all_df_1), "\n")
+cat("Peaks with gene annotation:", sum(!is.na(peaks_all_df_1$gene)), "\n")
+cat("Peaks without gene:", sum(is.na(peaks_all_df_1$gene)), "\n")
+
+```
+
+```{r}
+# For genes with multiple peaks, keep the one closest to TSS
+peaks_for_rna_1 <- peaks_all_df_1 %>%
+  filter(!is.na(gene) & gene != "") %>%
+  group_by(gene) %>%
+  arrange(abs(distanceToTSS)) %>%
+  slice(1) %>%
+  ungroup()
+
+cat("\n=== Unique Genes in cDC1 ===\n")
+cat("Unique genes with peaks:", nrow(peaks_for_rna_1), "\n")
+
+write.csv(peaks_all_df_1, "cDC1_diffbind_ALL_annotated.csv", row.names = FALSE)
+#all peaks, includes genes with multiple peaks)
+write.csv(peaks_for_rna_1, "cDC1_diffbind_ALL_annotated_unique_genes.csv", row.names = FALSE)
+#one peak per gene, for RNA integration
+```
+
+```{r}
+# Also annotate just the significant peaks (for reference)
+annotated_sig_1 <- annotatePeak(
+  sig_sorted_1, 
+  TxDb = txdb_1,
+  annoDb = "org.Mm.eg.db",
+  tssRegion = c(-3000, 3000),
+  verbose = TRUE
+)
+
+peaks_sig_df_1 <- as.data.frame(annotated_sig_1) %>%
+  mutate(
+    peak_type = ifelse(Fold > 0, "Gain", "Loss"),
+    log2FoldChange_ATAC = Fold
+  ) %>%
+  dplyr::select(
+    seqnames, start, end,
+    gene = SYMBOL,
+    log2FoldChange_ATAC,
+    FDR_ATAC = FDR,
+    pvalue = `p.value`,
+    peak_type,
+    distanceToTSS,
+    annotation
+  )
+
+write.csv(peaks_sig_df_1, "cDC1_diffbind_significant_annotated.csv", row.names = FALSE)
+```
+
+##### cCD2 #####
+
+
+```{r}
+cDC2 <- dba(sampleSheet="csv_data/cDC2_diffbind.csv")
+cDC2 <- dba.count(cDC2)
+cDC2 <- dba.contrast(cDC2, categories=DBA_CONDITION, minMembers=2)
+cDC2 <- dba.analyze(cDC2, method=DBA_EDGER)
+cDC2 <- dba.report(cDC2, method=DBA_EDGER)
+
+sig_results_2 <- dba.report(cDC2, method=DBA_EDGER, th=0.05, bUsePval=FALSE)
+sig_sorted_2 <- sig_results_2[order(sig_results_2$Fold, decreasing=TRUE),]
+``` 
+  
+
+
+```{r}
+
+# View the significant results
+cat("\n=== cDC2 Differential Accessibility Results ===\n")
+cat("Total significant peaks (p<0.01):", length(sig_sorted_2), "\n")
+cat("Gained accessibility in KO (Fold > 0):", sum(sig_sorted_2$Fold > 0), "\n")
+cat("Lost accessibility in KO (Fold < 0):", sum(sig_sorted_2$Fold < 0), "\n")
+
+```
+
+```{r}
+
+# Separate gained and lost peaks
+gained_2 <- sig_sorted_2[sig_sorted_2$Fold > 0]  # KO has MORE accessibility
+lost_2 <- sig_sorted_2[sig_sorted_2$Fold < 0]    # KO has LESS accessibility
+
+# Export separately for futher pipeline analysis
+export.bed(gained_2, "cDC2_gained_accessibility.bed")
+export.bed(lost_2, "cDC2_lost_accessibility.bed")
+
+```
+
+```{r}
+
+# Create a combined file with labels
+gained_df_2 <- as.data.frame(gained_2)
+gained_df_2$peak_type <- "Gain"
+
+lost_df_2 <- as.data.frame(lost_2)
+lost_df_2$peak_type <- "Loss"
+
+# Combine them (Loss first, then Gain - like the figure)
+combined_2 <- rbind(lost_df_2, gained_df_2)
+
+```
+
+```{r}
+
+# Export as BED with name column indicating type
+combined_bed_2 <- combined_2[, c("seqnames", "start", "end", "peak_type")]
+
+write.table(combined_bed_2, "cDC2_significant_peaks_labeled.bed", 
+            quote=FALSE, sep="\t", row.names=FALSE, col.names=FALSE)
+
+cat("\nExported files:\n")
+cat("- cDC2_gained_accessibility.bed:", length(gained_2), "peaks\n")
+cat("- cDC2_lost_accessibility.bed:", length(lost_2), "peaks\n")
+cat("- cDC2_significant_peaks_labeled.bed: combined file\n")
+export.bed(sig_sorted_2, "cDC2_significant_peaks_sorted.bed")
+
+```
+
+```{r}
+# Get ALL results (significant + non-significant) for RNA integration
+all_results_2 <- dba.report(cDC2, method=DBA_EDGER, th=1, bUsePval=FALSE)
+
+cat("\n=== ALL cDC2 Peaks Summary ===\n")
+cat("Total peaks analyzed:", length(all_results_2), "\n")
+cat("Significant peaks (p<0.01):", sum(all_results_2$`p-value` < 0.01, na.rm=TRUE), "\n")
+cat("Non-significant peaks:", sum(all_results_2$`p-value` >= 0.01, na.rm=TRUE), "\n")
+```
+
+```{r}
+# Annotate ALL peaks with ChIPseeker
+txdb_2 <- TxDb.Mmusculus.UCSC.mm39.refGene
+
+annotated_all_2 <- annotatePeak(
+  all_results_2, 
+  TxDb = txdb_2,
+  annoDb = "org.Mm.eg.db",
+  tssRegion = c(-3000, 3000),
+  verbose = TRUE
+)
+
+```
+
+```{r}
+
+colnames(as.data.frame(annotated_all_2))
+
+# Convert annotated results to dataframe
+peaks_all_df_2 <- as.data.frame(annotated_all_2) %>%
+  mutate(
+    peak_type = ifelse(Fold > 0, "Gain", "Loss"),
+    log2FoldChange_ATAC = Fold
+  ) %>%
+  dplyr::select(
+    seqnames, start, end, width, strand,
+    gene = SYMBOL,
+    log2FoldChange_ATAC,
+    FDR_ATAC = FDR,
+    pvalue = p.value,
+    peak_type,
+    distanceToTSS,
+    annotation,
+    Conc, Conc_WT, Conc_KO
+  )
+
+```
+
+```{r}
+
+# Summary
+cat("\n=== Annotation Summary (ALL cDC2 peaks) ===\n")
+cat("Total peaks:", nrow(peaks_all_df_2), "\n")
+cat("Peaks with gene annotation:", sum(!is.na(peaks_all_df_2$gene)), "\n")
+cat("Peaks without gene:", sum(is.na(peaks_all_df_2$gene)), "\n")
+
+```
+
+
+```{r}
+# For genes with multiple peaks, keep the one closest to TSS
+peaks_for_rna_2 <- peaks_all_df_2 %>%
+  filter(!is.na(gene) & gene != "") %>%
+  group_by(gene) %>%
+  arrange(abs(distanceToTSS)) %>%
+  slice(1) %>%
+  ungroup()
+
+cat("\n=== Unique Genes in cDC2 ===\n")
+cat("Unique genes with peaks:", nrow(peaks_for_rna_2), "\n")
+
+write.csv(peaks_all_df_2, "cDC2_diffbind_ALL_annotated.csv", row.names = FALSE)
+#all peaks, includes genes with multiple peaks)
+write.csv(peaks_for_rna_2, "cDC2_diffbind_ALL_annotated_unique_genes.csv", row.names = FALSE)
+#one peak per gene, for RNA integration
+```
+
+
+```{r}
+# Also annotate just the significant peaks (for reference)
+annotated_sig_2 <- annotatePeak(
+  sig_sorted_2, 
+  TxDb = txdb_2,
+  annoDb = "org.Mm.eg.db",
+  tssRegion = c(-3000, 3000),
+  verbose = TRUE
+)
+
+peaks_sig_df_2 <- as.data.frame(annotated_sig_2) %>%
+  mutate(
+    peak_type = ifelse(Fold > 0, "Gain", "Loss"),
+    log2FoldChange_ATAC = Fold
+  ) %>%
+  dplyr::select(
+    seqnames, start, end,
+    gene = SYMBOL,
+    log2FoldChange_ATAC,
+    FDR_ATAC = FDR,
+    pvalue = `p.value`,
+    peak_type,
+    distanceToTSS,
+    annotation
+  )
+
+write.csv(peaks_sig_df_2, "cDC1_diffbind_significant_annotated.csv", row.names = FALSE)
+```
+
+

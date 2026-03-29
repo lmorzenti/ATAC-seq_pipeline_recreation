@@ -12,7 +12,7 @@ library(rtracklayer)
 
 
 ```{r}
-cDC2 <- dba(sampleSheet="cDC2_diffbind.csv")
+cDC2 <- dba(sampleSheet="csv_data/cDC2_diffbind.csv")
 ```
 
 

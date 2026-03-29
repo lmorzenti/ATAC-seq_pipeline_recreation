@@ -1,0 +1,190 @@
+---
+title: "DESeq2_Analysis"
+output: html_document
+---
+
+This markdown file will complete a DESeq2 Analysis for both cell types. It assumes that there are 2 csv files that have been made with information written as the following:
+
+`sample,condition,replicate`
+
+```{r}
+library(DESeq2)
+library(readr)
+library(tidyverse)
+```
+
+
+##### cCD1 #####
+
+```{r}
+# Read data
+cDC1_counts <- read_tsv("GSE266583_cDC1_Raw_counts.tsv")
+cDC1_coldata <- read.csv("csv_data/cDC1_coldata.csv", row.names = 1)
+```
+
+
+```{r}
+# Prepare count matrix
+cDC1_count_matrix <- as.matrix(cDC1_counts[, -1])
+rownames(cDC1_count_matrix) <- cDC1_counts$gene_id
+cDC1_count_matrix <- round(cDC1_count_matrix)
+
+# Ensure order matches
+cDC1_count_matrix <- cDC1_count_matrix[, rownames(cDC1_coldata)]
+
+# Verify
+all(colnames(cDC1_count_matrix) == rownames(cDC1_coldata))  # Should be TRUE
+```
+
+```{r}
+# Create DESeq2 object
+dds_1 <- DESeqDataSetFromMatrix(
+  countData = cDC1_count_matrix,
+  colData = cDC1_coldata,
+  design = ~ condition
+)
+
+# Filter low counts
+keep <- rowSums(counts(dds_1) >= 10) >= 2
+dds_1 <- dds_1[keep, ]
+
+# Run DESeq2
+dds_1 <- DESeq(dds_1)
+
+```
+
+
+```{r}
+# Get results (KO vs WT)
+results_cDC1 <- results(dds_1, contrast = c("condition", "KO", "WT"))
+
+resOrdered_cDC1 <- results_cDC1[order(results_cDC1$padj),]
+deseq2_res_cDC1 <- as_tibble(resOrdered_cDC1, rownames='gene')
+deseq2_res_cDC1
+
+summary(results_cDC1)
+```
+
+```{r}
+#Annotate which genes are up regulated, down regulated, or non-significant
+
+sig_cDC1 <- deseq2_res_cDC1 %>% relocate(gene)
+sig_cDC1$significant <- "No"  # default: not significant
+sig_cDC1$significant[deseq2_res_cDC1$padj < 0.05] <- "Yes"
+# Direction = based on padj < 0.05 only (no fold-change filter)
+sig_cDC1$direction <- "NotSig"
+sig_cDC1$direction[deseq2_res_cDC1$padj < 0.05 & deseq2_res_cDC1$log2FoldChange > 0] <- "Up"
+sig_cDC1$direction[deseq2_res_cDC1$padj < 0.05 & deseq2_res_cDC1$log2FoldChange < 0] <- "Down"
+
+sig_cDC1
+```
+
+
+```{r}
+
+# saving and viewing results 
+
+cat("\n=== cDC1 Differential Expression Results ===\n")
+cat("Total significant genes (FDR < 0.05):", sum(sig_cDC1$significant == "Yes"), "\n")
+cat("Upregulated in KO:", sum(sig_cDC1$direction == "Up"), "\n")
+cat("Downregulated in KO:", sum(sig_cDC1$direction == "Down"), "\n")
+
+write.csv(sig_cDC1, "cDC1_DESeq2_significant.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+##### cCD2 #####
+```{r}
+# Read data
+cDC2_counts <- read_tsv("GSE266583_cDC2_Raw_counts.tsv")
+cDC2_coldata <- read.csv("csv_data/cDC2_coldata.csv", row.names = 1)
+```
+
+```{r}
+# Prepare count matrix
+cDC2_count_matrix <- as.matrix(cDC2_counts[, -1])
+rownames(cDC2_count_matrix) <- cDC2_counts$gene_id
+cDC2_count_matrix <- round(cDC2_count_matrix)
+```
+
+```{r}
+# Ensure order matches
+cDC2_count_matrix <- cDC2_count_matrix[, rownames(cDC2_coldata)]
+
+# Verify
+all(colnames(cDC2_count_matrix) == rownames(cDC2_coldata))  # Should be TRUE
+```
+
+```{r}
+# Create DESeq2 object
+dds_2 <- DESeqDataSetFromMatrix(
+  countData = cDC2_count_matrix,
+  colData = cDC2_coldata,
+  design = ~ condition
+)
+
+# Filter low counts
+keep <- rowSums(counts(dds_2) >= 10) >= 2
+dds_2 <- dds_2[keep, ]
+
+# Run DESeq2
+dds_2 <- DESeq(dds_2)
+
+```
+
+```{r}
+# Get results (KO vs WT)
+results_cDC2 <- results(dds_2, contrast = c("condition", "KO", "WT"))
+
+resOrdered_cDC2 <- results_cDC2[order(results_cDC2$padj),]
+deseq2_res_cDC2 <- as_tibble(resOrdered_cDC2, rownames='gene')
+deseq2_res_cDC2
+
+summary(results_cDC2)
+```
+```{r}
+#Annotate which genes are up regulated, down regulated, or non-significant
+
+sig_cDC2 <- deseq2_res_cDC2 %>% relocate(gene)
+sig_cDC2$significant <- "No"  # default: not significant
+sig_cDC2$significant[deseq2_res_cDC2$padj < 0.05] <- "Yes"
+# Direction = based on padj < 0.05 only (no fold-change filter)
+sig_cDC2$direction <- "NotSig"
+sig_cDC2$direction[deseq2_res_cDC2$padj < 0.05 & deseq2_res_cDC2$log2FoldChange > 0] <- "Up"
+sig_cDC2$direction[deseq2_res_cDC2$padj < 0.05 & deseq2_res_cDC2$log2FoldChange < 0] <- "Down"
+
+sig_cDC2
+```
+
+```{r}
+
+# saving and viewing results 
+
+cat("\n=== cDC2 Differential Expression Results ===\n")
+cat("Total significant genes (FDR < 0.05):", sum(sig_cDC2$significant == "Yes"), "\n")
+cat("Upregulated in KO:", sum(sig_cDC2$direction == "Up"), "\n")
+cat("Downregulated in KO:", sum(sig_cDC2$direction == "Down"), "\n")
+
+write.csv(sig_cDC2, "cDC2_DESeq2_significant.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+

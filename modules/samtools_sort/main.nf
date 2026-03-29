@@ -1,23 +1,25 @@
 #!/usr/bin/env nextflow
 
 process SAMTOOLS_SORT {
-    label 'process_high'
+
+    label 'process_medium'
     container 'ghcr.io/bf528/samtools:latest'
-    publishDir params.outdir
-    
+    publishDir "${params.outdir}/samtools_sort_full", mode: 'copy'
+
     input:
-    tuple val(sample_id), path(bam)
+    tuple val(sample_name), path(bamfile)
 
     output:
-    tuple val(sample_id), path("${sample_id}.sorted.bam")
+    tuple val(sample_name), path("*.sorted.bam")
 
     script:
     """
-    samtools sort -@ ${task.cpus} ${bam} > ${sample_id}.sorted.bam
+    samtools sort \
+        -@ ${task.cpus} ${bamfile} > ${sample_name}.sorted.bam
     """
 
     stub:
     """
-    touch ${sample_id}.sorted.bam
+    touch ${sample_name}.sorted.bam
     """
 }

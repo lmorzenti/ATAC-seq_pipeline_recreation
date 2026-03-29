@@ -1,192 +1,180 @@
-//modules are here:
-include {DOWNLOAD_FTP_FILE} from './modules/download_files'
+//include the tools from here
+include {DOWNLOAD} from './modules/download_files'
 include {FASTQC} from './modules/fastqc'
-include {TRIM} from './modules/trimmomatic'
+include {TRIMMOMATIC} from './modules/trimmomatic'
 include {BOWTIE2_BUILD} from './modules/bowtie2_build'
 include {BOWTIE2_ALIGN} from './modules/bowtie2_align'
+include {REMOVE_MITOCHONDRIAL} from './modules/remove_mitochondrial'
 include {SAMTOOLS_SORT} from './modules/samtools_sort'
-include {SAMTOOLS_IDX} from './modules/samtools_idx'
-include {REMOVE_MITO} from './modules/remove_mito'
-include {SAMTOOLS_FLAGSTAT} from './modules/samtools_flagstat'
+include {SAMTOOLS_INDEX} from './modules/samtools_index'
+include {SAMTOOLS_STAT} from './modules/samtools_stat'
 include {MULTIQC} from './modules/multiqc'
-include {TAGDIR} from './modules/homer_maketagdir'
-include {FINDPEAKS} from './modules/homer_findpeaks'
-include {POS2BED} from './modules/homer_pos2bed'
-include {ANNOTATE} from './modules/homer_annotatepeaks'
-include {FIND_MOTIFS_GENOME} from './modules/homer_findmotifsgenome'
-include {BAMCOVERAGE} from './modules/deeptools_bamcoverage'
-include {MULTIBWSUMMARY} from './modules/deeptools_multibwsummary'
-include {PLOTCORRELATION} from './modules/deeptools_plotcorrelation'
-include {COMPUTEMATRIX} from './modules/deeptools_computematrix'
-include {PLOTPROFILE} from './modules/deeptools_plotprofile'
-include {BEDTOOLS_INTERSECT} from './modules/bedtools_intersect'
+include {MACS3_CALLPEAKS} from './modules/macs3_callpeaks'
 include {BEDTOOLS_REMOVE} from './modules/bedtools_remove'
-include {CALLPEAKS} from './modules/macs_callpeaks'
-include {CREATE_DIFFBIND_SAMPLESHEET} from './modules/diffbind_samplesheet'
-include {CALCULATE_FRIP} from './modules/calculate_frip'
-include {MACS2BED} from './modules/bedtools_macs2bed'
 include {MERGE_REPLICATE_PEAKS} from './modules/merge_peaks'
-include {COMPUTEMATRIX as COMPUTEMATRIX_CDC1} from './modules/deeptools_computematrix'
-include {COMPUTEMATRIX as COMPUTEMATRIX_CDC2} from './modules/deeptools_computematrix'
-include {COMPUTE_TSS_MATRIX as COMPUTE_TSS_MATRIX_CDC1} from './modules/deeptools_computetssmatrix'
-include {COMPUTE_TSS_MATRIX as COMPUTE_TSS_MATRIX_CDC2} from './modules/deeptools_computetssmatrix'
-include {PLOTHEATMAP as PLOTHEATMAP_CDC1} from './modules/deeptools_plotheatmap'
-include {PLOTHEATMAP as PLOTHEATMAP_CDC2} from './modules/deeptools_plotheatmap'
-include {PLOTPROFILE as PLOTPROFILE_CDC1} from './modules/deeptools_plotprofile'
-include {PLOTPROFILE as PLOTPROFILE_CDC2} from './modules/deeptools_plotprofile'
+include {ANNOTATE} from './modules/annotate'
+include {FIND_MOTIFS} from './modules/find_motifs'
+include {CALCULATE_FRIP} from './modules/calculate_frip'
+include {BAMCOVERAGE} from './modules/bamcoverage'
+include {MULTIBWSUMMARY} from './modules/multibwsummary'
+include {PLOTCORRELATION} from './modules/plotcorrelation'
+include {COMPUTEMATRIX as COMPUTEMATRIX_CDC1} from './modules/computematrix'
+include {COMPUTEMATRIX as COMPUTEMATRIX_CDC2} from './modules/computematrix'
+include {COMPUTE_TSS_MATRIX as COMPUTE_TSS_MATRIX_CDC1} from './modules/computetssmatrix'
+include {COMPUTE_TSS_MATRIX as COMPUTE_TSS_MATRIX_CDC2} from './modules/computetssmatrix'
+include {PLOTHEATMAP as PLOTHEATMAP_CDC1} from './modules/plotheatmap'
+include {PLOTHEATMAP as PLOTHEATMAP_CDC2} from './modules/plotheatmap'
+include {PLOTPROFILE as PLOTPROFILE_CDC1} from './modules/plotprofile'
+include {PLOTPROFILE as PLOTPROFILE_CDC2} from './modules/plotprofile'
+include {CALCULATE_TSS_ENRICHMENT as CALCULATE_TSS_ENRICHMENT_cDC1} from './modules/tss_enrichment_score'
+include {CALCULATE_TSS_ENRICHMENT as CALCULATE_TSS_ENRICHMENT_cDC2} from './modules/tss_enrichment_score'
 
 
-workflow {
-
-  // set up the tuple that will hold the reads and their names  
-    Channel.fromPath(params.samplesheet) 
+workflow{
+ // Download the data from the publication
+  // First, create the tuple that will hold the data
+    Channel.fromPath(params.fileaccess)
     | splitCsv( header: true )
-    | map{ row -> tuple(row.sample, row.ftp) }
-    | set { read_ch }
+    | map{ row -> tuple(row.sample_name, row.ftp) }
+    | set{ sample_ch }
 
-  // Download the files
-    DOWNLOAD_FTP_FILE(read_ch)
-  
-  // Perform quality checks on the raw reads
-    FASTQC(DOWNLOAD_FTP_FILE.out.fastq) 
+  // Second, pass the tuple through the download function
+  DOWNLOAD(sample_ch)
 
-  // Trim reads to make them better
-    TRIM(params.adapter_fa, DOWNLOAD_FTP_FILE.out.fastq)
+ // QC: Compute the sequence quality control on the raw reads
+  FASTQC(DOWNLOAD.out)
 
-  // Build the indexing for the genome and align the trimmed reads to the ref genome
-    BOWTIE2_BUILD(params.genome)
-    BOWTIE2_ALIGN(TRIM.out.reads, BOWTIE2_BUILD.out.index, BOWTIE2_BUILD.out.index_name)
+  // Trim the Adapters from the reads
+  TRIMMOMATIC(DOWNLOAD.out, params.adapter_fa)
 
-  // Gather information of alignment statistics
-    SAMTOOLS_FLAGSTAT(BOWTIE2_ALIGN.out.bam)
+  // Build the genome
+  BOWTIE2_BUILD(params.genome)
 
-  // Map the aligned reads by coordinate, remove reads that align to mitochondrial DNA, and index it
-    SAMTOOLS_SORT(BOWTIE2_ALIGN.out)
-    REMOVE_MITO(SAMTOOLS_SORT.out)
-    SAMTOOLS_IDX(REMOVE_MITO.out.nomit)
+  // Align the trimmed reads
+  BOWTIE2_ALIGN(TRIMMOMATIC.out.reads, BOWTIE2_BUILD.out.index, BOWTIE2_BUILD.out.index_name)
 
-  // Also calling peaks from macs3 for a maybe easier time with DiffBind
-    CALLPEAKS(SAMTOOLS_IDX.out) 
+  // Remove the alignments that align to mitochondrial DNA
+  REMOVE_MITOCHONDRIAL(BOWTIE2_ALIGN.out.bam)
 
-  // remove blacklisted genes
-    BEDTOOLS_REMOVE(CALLPEAKS.out, params.blacklist)
+  // Sort and Index the genomic reads that no longer have the mitochondrial reads
+  SAMTOOLS_SORT(REMOVE_MITOCHONDRIAL.out)
+  SAMTOOLS_INDEX(SAMTOOLS_SORT.out)
 
-  // atac-seq QC metric 1: FRiP
-    SAMTOOLS_SORT.out
-      .join(BEDTOOLS_REMOVE.out)
-      .view()
-      .set { bam_and_peaks }
+  // QC: Compute the mapping statistics of the reads for quality control 
+  SAMTOOLS_STAT(SAMTOOLS_INDEX.out)
 
-    CALCULATE_FRIP(bam_and_peaks)
+  // Grab all the outputs to combine into a single tuple to pass to multiqc
+  FASTQC.out.zip.map { it[1] }.collect()
+      .set { fastqc_ch }
 
-   //merge the peaks
-     merged_peaks = BEDTOOLS_REMOVE.out
+  TRIMMOMATIC.out.log.map { it[1] }.collect()
+      .set { trim_ch }
+
+  SAMTOOLS_STAT.out.map { it[1] }.collect()
+      .set { flagstat_ch }
+
+  fastqc_ch.mix(trim_ch).mix(flagstat_ch).flatten().collect()
+      .set { multiqc_ch }
+
+  // QC: Pass the channel through multiqc for a comprehensive quality control
+  MULTIQC(multiqc_ch)
+
+  // Call Peaks using MACS3 
+  MACS3_CALLPEAKS(SAMTOOLS_INDEX.out)
+
+  // Remove the regions listed in the ucsc blacklist
+  BEDTOOLS_REMOVE(MACS3_CALLPEAKS.out, params.blacklist)
+
+  // Create a channel to merge replicate peaks for annotation
+    merge_peaks_channel = BEDTOOLS_REMOVE.out
         .map { name, bed -> 
             def celltype = (name =~ /cDC\d/)[0]
             def condition = (name =~ /WT|KO/)[0]
             tuple("${celltype}_${condition}", bed)
         }
         .groupTuple()  // Combine reps within same celltype+condition
-    merged_peaks.view()
 
-    MERGE_REPLICATE_PEAKS(merged_peaks)
+  // Actually merge the peaks
+  MERGE_REPLICATE_PEAKS(merge_peaks_channel)
 
-  
-  // Combine samtool index output with macs3 output and parse sample info to make csv file
-    SAMTOOLS_IDX.out
-        .join(BEDTOOLS_REMOVE.out)
-        .map { sample_id, bam, bai, bed ->
-            def matcher = (sample_id =~ /ATAC_(cDC\d+)_(WT|KO)_(\d+)/)
-            tuple(
-                matcher[0][1],  // cell_type
-                sample_id,
-                matcher[0][2],  // condition
-                matcher[0][3],  // replicate
-                bam,
-                bed
-            )
-        }
-       .groupTuple(by: 0)
-       .set { diffbind_by_celltype }
+  // Annotate the grouped, filtered peaks
+  ANNOTATE(MERGE_REPLICATE_PEAKS.out, params.genome, params.gtf)
 
-    diffbind_by_celltype.view()
+  // Analysis 1: Find motifs
+  FIND_MOTIFS(MERGE_REPLICATE_PEAKS.out, params.genome)
 
-  // Create separate samplesheets for each cell type
-    CREATE_DIFFBIND_SAMPLESHEET(diffbind_by_celltype)
+  // ATAC-seq specific quality control #1: Calcluating FRiP // 
+  // First, join the bam files and the general peaks into a channel
+  SAMTOOLS_SORT.out
+    .join(BEDTOOLS_REMOVE.out)
+    .set { bam_and_peaks }
 
-  // Collect all quality control metrics into a channel
-    multiqc_channel = FASTQC.out.zip
-       .map { it[1] }
-       .mix(TRIM.out.log.map { it[1] })
-       .mix(SAMTOOLS_FLAGSTAT.out.map { it[1] })
-       .collect()
-    //
-
-    // Make a readable report of the quality control metric 
-    MULTIQC(multiqc_channel)
-
-    // Find some motifs
-    FIND_MOTIFS_GENOME(MERGE_REPLICATE_PEAKS.out, params.genome)
-
-    // Annotate differentially accessible peaks
-    ANNOTATE(MERGE_REPLICATE_PEAKS.out, params.gtf, params.genome)
-
-    // Make bigwig files for the samples
-    BAMCOVERAGE(SAMTOOLS_IDX.out)
-
-    // Make a channel that collects only the bigwigs
-    BAMCOVERAGE.out
-      .map {sample_id, bw -> bw}
-      .collect()
-      .set {bigwigs_grouped}
-
-    // Summarize the bigwigs
-    MULTIBWSUMMARY(bigwigs_grouped)
+  // Calculate frip
+  CALCULATE_FRIP(bam_and_peaks)
     
-    // Plot a spearman correlation map
-    PLOTCORRELATION(MULTIBWSUMMARY.out)
+  // Create bigwigs from the bam files 
+  BAMCOVERAGE(SAMTOOLS_INDEX.out)
 
-    // Split bigWigs by cell type
+  // Make a single channel that contains only bigwig files
     BAMCOVERAGE.out
+      .map { sample, bw -> bw }
+      .collect()
+      .set { bw_ch }
+
+  // Calculate the average read coverage across fixed-size bins in a matrix
+  MULTIBWSUMMARY(bw_ch)
+
+  // Visualize how similar the genome-wide signal is between all samples
+  PLOTCORRELATION(MULTIBWSUMMARY.out.npz)
+
+  // Split the BigWigs by cell type
+  BAMCOVERAGE.out
         .branch { sample, bw ->
             cDC1: sample.contains('cDC1')
                 return tuple(sample, bw)
             cDC2: sample.contains('cDC2')
-             return tuple(sample, bw)
+                return tuple(sample, bw)
      }
         .set { bw_by_celltype }
 
-    // Collect bigWigs for each cell type
+  // Make each cell type its own channel
     bw_by_celltype.cDC1
         .map { sample, bw -> bw }
         .collect()
-        .view()
         .set { cDC1_bw }
 
     bw_by_celltype.cDC2
         .map { sample, bw -> bw }
         .collect()
-        .view()
         .set { cDC2_bw }
 
-    // Run compute matrix separately for each cell type
-    //COMPUTEMATRIX_CDC1('cDC1', cDC1_bw, params.cdc1_lost_peaks, params.cdc1_gained_peaks)
-      //  .set { cDC1_matrix }
+/// Create 2 CSV files that contain cDC1 and cDC2 files for differntial peak analysis ///
+/// Complete Differential Peak Analysis in an R markdown before continuing through the rest of the pipeline ///     
 
-    //COMPUTEMATRIX_CDC2('cDC2', cDC2_bw, params.cdc2_lost_peaks, params.cdc2_gained_peaks)
-      //  .set { cDC2_matrix }
+  // Calculate read coverage from the bigwig files centered on the differential peaks
+  COMPUTEMATRIX_CDC1('cDC1', cDC1_bw, params.cdc1_lost_peaks, params.cdc1_gained_peaks)
+    .set { cDC1_matrix }
 
-    //COMPUTE_TSS_MATRIX_CDC1('cDC1', cDC1_bw, params.TSS)
-      //  .set { cDC1_TSS_matrix }
+  COMPUTEMATRIX_CDC2('cDC2', cDC2_bw, params.cdc2_lost_peaks, params.cdc2_gained_peaks)
+    .set { cDC2_matrix }
+
+  // Calculate read coverage from the bigwig files centered on the TSS regions 
+  COMPUTE_TSS_MATRIX_CDC1('cDC1', cDC1_bw, params.TSS)
+    .set { cDC1_TSS_matrix }
     
-    //COMPUTE_TSS_MATRIX_CDC2('cDC2', cDC2_bw, params.TSS)
-      //  .set { cDC2_TSS_matrix }
+  COMPUTE_TSS_MATRIX_CDC2('cDC2', cDC2_bw, params.TSS)
+    .set { cDC2_TSS_matrix }
 
-    // Plot separately with labels
-    //PLOTHEATMAP_CDC1(cDC1_matrix.map { celltype, matrix -> matrix })
-    //PLOTHEATMAP_CDC2(cDC2_matrix.map { celltype, matrix -> matrix })
-    //PLOTPROFILE_CDC1(cDC1_TSS_matrix.map { celltype, matrix -> matrix })
-    //PLOTPROFILE_CDC2(cDC2_TSS_matrix.map { celltype, matrix -> matrix })
+  // Visualize peak matrices as a heatmap 
+  PLOTHEATMAP_CDC1(cDC1_matrix.map { celltype, matrix -> matrix })
+  PLOTHEATMAP_CDC2(cDC2_matrix.map { celltype, matrix -> matrix })
 
-  
+  // Visualize the TSS matrices as an aggregate line plot
+  PLOTPROFILE_CDC1(cDC1_TSS_matrix.map { celltype, matrix -> matrix })
+  PLOTPROFILE_CDC2(cDC2_TSS_matrix.map { celltype, matrix -> matrix })
+
+  // ATAC-seq specific quality control #2: TSS Enrichment Score // 
+  CALCULATE_TSS_ENRICHMENT_cDC1(cDC1_TSS_matrix)
+  CALCULATE_TSS_ENRICHMENT_cDC2(cDC2_TSS_matrix)
+
 }

@@ -1,24 +1,29 @@
 #!/usr/bin/env nextflow
 
 process BEDTOOLS_REMOVE {
+
     label 'process_medium'
     container 'ghcr.io/bf528/bedtools:latest'
     publishDir "${params.outdir}/filtered_peaks", mode:'copy'
 
     input:
-    tuple val(sample_id), path(bedfile)
+    tuple val(sample_name), path(macs3peaks)
     path(blacklist)
 
     output:
-    tuple val(sample_id), path("${sample_id}_filtered.bed")
+    tuple val(sample_name), path("${sample_name}_filtered.narrowPeak")
 
     script:
     """
-    bedtools subtract -a ${bedfile} -b ${blacklist} > ${sample_id}_filtered.bed
+    bedtools intersect \
+        -a ${macs3peaks} \
+        -b ${blacklist} \
+        -v > ${sample_name}_filtered.narrowPeak
     """
 
     stub:
     """
-    touch ${sample_id}_filtered.bed
+    touch ${sample_name}_filtered.narrowPeak
     """
+
 }
